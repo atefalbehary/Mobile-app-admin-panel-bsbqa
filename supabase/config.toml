@@ -1,0 +1,4 @@
+project_id = "btcxjwusddcavgwfnujv"
+
+[functions.api-docs]
+verify_jwt = false
