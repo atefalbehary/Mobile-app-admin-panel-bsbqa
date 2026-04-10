@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,22 +70,24 @@ const NotificationHistory = ({ refreshKey }: NotificationHistoryProps) => {
 
   const fetchNotifications = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) setNotifications(data as any as HistoryNotification[]);
-    if (error) console.error(error);
+    try {
+      const data = await api<HistoryNotification[]>("/api/push-campaigns");
+      setNotifications(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
   useEffect(() => { fetchNotifications(); }, [refreshKey]);
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("notifications").delete().eq("id", id);
-    if (!error) {
+    try {
+      await api("/api/push-campaigns/" + id, { method: "DELETE" });
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       toast({ title: "Notification deleted" });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
     }
   };
 

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect, useCallback } from "react";
+import { api } from "@/lib/api";
 
 export interface AdminNotification {
   id: string;
@@ -16,54 +16,41 @@ export function useAdminNotifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const fetchNotifications = async () => {
-    const { data, error } = await supabase
-      .from("admin_notifications")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (!error && data) {
-      setNotifications(data as AdminNotification[]);
-      setUnreadCount(data.filter((n: AdminNotification) => !n.is_read).length);
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const data = await api<AdminNotification[]>("/api/bell-notifications");
+      setNotifications(data || []);
+      setUnreadCount((data || []).filter((n) => !n.is_read).length);
+    } catch {
+      setNotifications([]);
+      setUnreadCount(0);
     }
     setLoading(false);
-  };
+  }, []);
 
   const markAsRead = async (id: string) => {
-    await supabase.from("admin_notifications").update({ is_read: true }).eq("id", id);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-    );
+    await api("/api/bell-notifications/read", {
+      method: "PATCH",
+      body: JSON.stringify({ id }),
+    });
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
     setUnreadCount((c) => Math.max(0, c - 1));
   };
 
   const markAllAsRead = async () => {
-    await supabase.from("admin_notifications").update({ is_read: true }).eq("is_read", false);
+    await api("/api/bell-notifications/read", {
+      method: "PATCH",
+      body: JSON.stringify({ mark_all: true }),
+    });
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
   };
 
   useEffect(() => {
     fetchNotifications();
-
-    const channel = supabase
-      .channel("admin-notifications-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "admin_notifications" },
-        (payload) => {
-          const newNotif = payload.new as AdminNotification;
-          setNotifications((prev) => [newNotif, ...prev].slice(0, 50));
-          setUnreadCount((c) => c + 1);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    const t = window.setInterval(fetchNotifications, 30000);
+    return () => window.clearInterval(t);
+  }, [fetchNotifications]);
 
   return { notifications, unreadCount, loading, markAsRead, markAllAsRead };
 }

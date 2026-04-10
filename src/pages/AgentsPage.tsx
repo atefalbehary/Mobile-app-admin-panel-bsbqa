@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,27 +98,27 @@ const AgentsPage = () => {
 
   const fetchAgents = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_type", "agent")
-      .order("created_at", { ascending: false });
-    const dbAgents = (data || []) as Agent[];
-    // Merge DB agents with dummy, avoiding duplicates by user_id
-    const dbUserIds = new Set(dbAgents.map((a) => a.user_id));
-    const merged = [...dbAgents, ...dummyAgents.filter((d) => !dbUserIds.has(d.user_id))];
-    setAgents(merged);
-    if (error) console.error(error);
+    try {
+      const all = await api<
+        { user_id: string; user_type: string; name: string; email: string; phone: string | null; agency_name: string | null; is_active: boolean; approval_status: string; created_at: string }[]
+      >("/api/profiles");
+      const dbAgents = (all || []).filter((p) => p.user_type === "agent") as Agent[];
+      const dbUserIds = new Set(dbAgents.map((a) => a.user_id));
+      const merged = [...dbAgents, ...dummyAgents.filter((d) => !dbUserIds.has(d.user_id))];
+      setAgents(merged as Agent[]);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
   const fetchVisits = async () => {
-    const { data, error } = await supabase
-      .from("visit_schedules" as any)
-      .select("*")
-      .order("visit_date", { ascending: false });
-    if (data) setVisits(data as any as VisitSchedule[]);
-    if (error) console.error(error);
+    try {
+      const data = await api<VisitSchedule[]>("/api/visit-schedules");
+      setVisits(data || []);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   useEffect(() => { fetchAgents(); fetchVisits(); }, []);
@@ -153,10 +153,15 @@ const AgentsPage = () => {
       toast({ title: `Agent ${!current ? "activated" : "deactivated"}` });
       return;
     }
-    const { error } = await supabase.from("profiles").update({ is_active: !current }).eq("user_id", userId);
-    if (!error) {
+    try {
+      await api("/api/profiles/" + userId, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: !current }),
+      });
       setAgents((prev) => prev.map((a) => a.user_id === userId ? { ...a, is_active: !current } : a));
       toast({ title: `Agent ${!current ? "activated" : "deactivated"}` });
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 
@@ -200,11 +205,17 @@ const AgentsPage = () => {
   };
 
   const deleteVisits = async () => {
-    const { error } = await supabase.from("visit_schedules" as any).delete().in("id", visitSelectedIds);
-    if (!error) {
+    try {
+      await api("/api/visit-schedules", {
+        method: "DELETE",
+        body: JSON.stringify({ ids: visitSelectedIds }),
+      });
+      const n = visitSelectedIds.length;
       setVisits((prev) => prev.filter((v) => !visitSelectedIds.includes(v.id)));
       setVisitSelectedIds([]);
-      toast({ title: `${visitSelectedIds.length} visit(s) deleted` });
+      toast({ title: `${n} visit(s) deleted` });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
     }
   };
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,28 +43,30 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
       return;
     }
     setSending(true);
-    const { error } = await supabase.from("notifications").insert({
-      title: form.title,
-      title_ar: form.title_ar || null,
-      body: form.body || null,
-      body_ar: form.body_ar || null,
-      type: form.type,
-      target: form.target,
-      status: "sent",
-      source_type: "manual",
-      trigger_type: "manual_campaign",
-      delivery_channel: form.type,
-      deep_link: form.deep_link || null,
-      sent_at: new Date().toISOString(),
-      recipient_count: 0,
-    } as any);
-
-    if (error) {
-      toast({ title: "Failed", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await api("/api/push-campaigns", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title,
+          title_ar: form.title_ar || null,
+          body: form.body || null,
+          body_ar: form.body_ar || null,
+          type: form.type,
+          target: form.target,
+          status: "sent",
+          source_type: "manual",
+          trigger_type: "manual_campaign",
+          delivery_channel: form.type,
+          deep_link: form.deep_link || null,
+          sent_at: new Date().toISOString(),
+          recipient_count: 0,
+        }),
+      });
       toast({ title: "Notification sent!" });
       resetForm();
       onSent();
+    } catch (err: unknown) {
+      toast({ title: "Failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
     setSending(false);
   };
@@ -76,55 +78,59 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
     }
     setSending(true);
     const scheduledAt = new Date(`${form.scheduled_date}T${form.scheduled_time}`).toISOString();
-    const { error } = await supabase.from("notifications").insert({
-      title: form.title,
-      title_ar: form.title_ar || null,
-      body: form.body || null,
-      body_ar: form.body_ar || null,
-      type: form.type,
-      target: form.target,
-      status: "scheduled",
-      source_type: "manual",
-      trigger_type: "manual_campaign",
-      delivery_channel: form.type,
-      deep_link: form.deep_link || null,
-      scheduled_at: scheduledAt,
-      recipient_count: 0,
-    } as any);
-
-    if (error) {
-      toast({ title: "Failed", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await api("/api/push-campaigns", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title,
+          title_ar: form.title_ar || null,
+          body: form.body || null,
+          body_ar: form.body_ar || null,
+          type: form.type,
+          target: form.target,
+          status: "scheduled",
+          source_type: "manual",
+          trigger_type: "manual_campaign",
+          delivery_channel: form.type,
+          deep_link: form.deep_link || null,
+          scheduled_at: scheduledAt,
+          recipient_count: 0,
+        }),
+      });
       toast({ title: "Notification scheduled!" });
       resetForm();
       onSent();
+    } catch (err: unknown) {
+      toast({ title: "Failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
     setSending(false);
   };
 
   const handleSaveDraft = async () => {
     setSending(true);
-    const { error } = await supabase.from("notifications").insert({
-      title: form.title || "Untitled Draft",
-      title_ar: form.title_ar || null,
-      body: form.body || null,
-      body_ar: form.body_ar || null,
-      type: form.type,
-      target: form.target,
-      status: "draft",
-      source_type: "manual",
-      trigger_type: "manual_campaign",
-      delivery_channel: form.type,
-      deep_link: form.deep_link || null,
-      recipient_count: 0,
-    } as any);
-
-    if (error) {
-      toast({ title: "Failed", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await api("/api/push-campaigns", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title || "Untitled Draft",
+          title_ar: form.title_ar || null,
+          body: form.body || null,
+          body_ar: form.body_ar || null,
+          type: form.type,
+          target: form.target,
+          status: "draft",
+          source_type: "manual",
+          trigger_type: "manual_campaign",
+          delivery_channel: form.type,
+          deep_link: form.deep_link || null,
+          recipient_count: 0,
+        }),
+      });
       toast({ title: "Saved as draft" });
       resetForm();
       onSent();
+    } catch (err: unknown) {
+      toast({ title: "Failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
     setSending(false);
   };

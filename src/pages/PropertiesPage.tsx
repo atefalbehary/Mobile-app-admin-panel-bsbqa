@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,12 +51,12 @@ const PropertiesPage = () => {
 
   const fetchProperties = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("properties")
-      .select("id, name, name_ar, property_type, status, price, currency, bedroom_count, bathroom_count, gross_area, location, is_featured, created_at")
-      .order("created_at", { ascending: false });
-    if (data) setProperties(data);
-    if (error) console.error(error);
+    try {
+      const data = await api<Property[]>("/api/properties");
+      setProperties(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -70,14 +70,25 @@ const PropertiesPage = () => {
   });
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("properties").delete().eq("id", id);
-    if (!error) { setProperties((prev) => prev.filter((p) => p.id !== id)); toast({ title: "Property deleted" }); }
-    else toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    try {
+      await api("/api/properties/" + id, { method: "DELETE" });
+      setProperties((prev) => prev.filter((p) => p.id !== id));
+      toast({ title: "Property deleted" });
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
+    }
   };
 
   const handleToggleFeatured = async (id: string, current: boolean) => {
-    const { error } = await supabase.from("properties").update({ is_featured: !current }).eq("id", id);
-    if (!error) setProperties((prev) => prev.map((p) => p.id === id ? { ...p, is_featured: !current } : p));
+    try {
+      await api("/api/properties/" + id + "/featured", {
+        method: "PATCH",
+        body: JSON.stringify({ is_featured: !current }),
+      });
+      setProperties((prev) => prev.map((p) => (p.id === id ? { ...p, is_featured: !current } : p)));
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
+    }
   };
 
   if (subTab === "add-project") {

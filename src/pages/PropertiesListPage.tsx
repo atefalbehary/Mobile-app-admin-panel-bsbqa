@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,12 +33,12 @@ const PropertiesListPage = () => {
 
   const fetchProperties = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("properties")
-      .select("id, name, unit_number, project, sale_type, status, created_at")
-      .order("created_at", { ascending: false });
-    if (data) setProperties(data);
-    if (error) console.error(error);
+    try {
+      const data = await api<Property[]>("/api/properties");
+      setProperties(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -67,26 +67,30 @@ const PropertiesListPage = () => {
   }, [properties, search, filterSaleType, filterProject]);
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("properties").delete().eq("id", id);
-    if (!error) {
-      setProperties(prev => prev.filter(p => p.id !== id));
-      setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    try {
+      await api("/api/properties/" + id, { method: "DELETE" });
+      setProperties((prev) => prev.filter((p) => p.id !== id));
+      setSelectedIds((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
       toast({ title: "Property deleted" });
-    } else {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
   };
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
-    const { error } = await supabase.from("properties").delete().in("id", ids);
-    if (!error) {
-      setProperties(prev => prev.filter(p => !selectedIds.has(p.id)));
+    try {
+      await api("/api/properties/delete-batch", { method: "POST", body: JSON.stringify({ ids }) });
+      setProperties((prev) => prev.filter((p) => !selectedIds.has(p.id)));
       setSelectedIds(new Set());
       toast({ title: `${ids.length} properties deleted` });
-    } else {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
   };
 

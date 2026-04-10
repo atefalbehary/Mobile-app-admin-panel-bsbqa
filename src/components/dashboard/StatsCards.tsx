@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Smartphone, MessageSquare, Bell, Heart, CalendarCheck } from "lucide-react";
 
 const StatsCards = () => {
@@ -14,26 +14,33 @@ const StatsCards = () => {
 
   useEffect(() => {
     const fetchStats = async () => {
-      const [profilesRes, notifRes, propsRes, visitsRes] = await Promise.all([
-        supabase.from("profiles").select("user_type"),
-        supabase.from("notifications").select("id", { count: "exact", head: true }),
-        supabase.from("properties").select("id", { count: "exact", head: true }),
-        supabase.from("visit_schedules").select("id", { count: "exact", head: true }),
-      ]);
-
-      const profiles = profilesRes.data || [];
-      const users = profiles.filter((p) => p.user_type === "user").length;
-      const agents = profiles.filter((p) => p.user_type === "agent").length;
-      const agencies = profiles.filter((p) => p.user_type === "agency").length;
-
-      setStats({
-        users: users + agents + agencies,
-        agents,
-        agencies,
-        notifications: notifRes.count || 0,
-        properties: propsRes.count || 0,
-        visits: visitsRes.count || 0,
-      });
+      try {
+        const s = await api<{
+          profiles: number;
+          profilesByType: { user: number; agent: number; agency: number };
+          notifications: number;
+          properties: number;
+          visits: number;
+        }>("/api/stats");
+        const { user, agent, agency } = s.profilesByType;
+        setStats({
+          users: user + agent + agency,
+          agents: agent,
+          agencies: agency,
+          notifications: s.notifications,
+          properties: s.properties,
+          visits: s.visits,
+        });
+      } catch {
+        setStats({
+          users: 0,
+          agents: 0,
+          agencies: 0,
+          notifications: 0,
+          properties: 0,
+          visits: 0,
+        });
+      }
     };
     fetchStats();
   }, []);

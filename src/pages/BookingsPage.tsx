@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,9 +37,12 @@ const BookingsPage = () => {
 
   const fetchBookings = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("bookings").select("*").order("date", { ascending: false });
-    if (data) setBookings(data);
-    if (error) console.error(error);
+    try {
+      const data = await api<Booking[]>("/api/crm-bookings");
+      setBookings(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -48,10 +51,12 @@ const BookingsPage = () => {
   const filtered = bookings.filter((b) => filterStatus === "all" || b.status === filterStatus);
 
   const handleStatusChange = async (id: string, status: string) => {
-    const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
-    if (!error) {
-      setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status } : b));
+    try {
+      await api("/api/crm-bookings/" + id, { method: "PATCH", body: JSON.stringify({ status }) });
+      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
       toast({ title: `Booking ${status}` });
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 

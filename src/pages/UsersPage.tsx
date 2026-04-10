@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,16 +79,15 @@ const UsersPage = () => {
 
   const fetchUsers = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    const dbUsers = (data || []) as Profile[];
-    const dbUserIds = new Set(dbUsers.map((u) => u.user_id));
-    const merged = [...dbUsers, ...dummyUsers.filter((d) => !dbUserIds.has(d.user_id))];
-    setUsers(merged);
-    if (error) console.error(error);
+    try {
+      const data = await api<Profile[]>("/api/profiles");
+      const dbUsers = data || [];
+      const dbUserIds = new Set(dbUsers.map((u) => u.user_id));
+      const merged = [...dbUsers, ...dummyUsers.filter((d) => !dbUserIds.has(d.user_id))];
+      setUsers(merged);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -114,27 +113,27 @@ const UsersPage = () => {
       toast({ title: `User ${!currentActive ? "activated" : "deactivated"}` });
       return;
     }
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_active: !currentActive })
-      .eq("user_id", userId);
-
-    if (!error) {
+    try {
+      await api("/api/profiles/" + userId, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: !currentActive }),
+      });
       setUsers((prev) =>
         prev.map((u) => (u.user_id === userId ? { ...u, is_active: !currentActive } : u))
       );
       toast({ title: `User ${!currentActive ? "activated" : "deactivated"}` });
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 
   const updateApproval = async (userId: string, status: "approved" | "rejected") => {
     const isActive = status === "approved";
-    const { error } = await supabase
-      .from("profiles")
-      .update({ approval_status: status, is_active: isActive })
-      .eq("user_id", userId);
-
-    if (!error) {
+    try {
+      await api("/api/profiles/" + userId, {
+        method: "PATCH",
+        body: JSON.stringify({ approval_status: status, is_active: isActive }),
+      });
       setUsers((prev) =>
         prev.map((u) =>
           u.user_id === userId ? { ...u, approval_status: status, is_active: isActive } : u
@@ -142,6 +141,8 @@ const UsersPage = () => {
       );
       toast({ title: `User ${status}` });
       setViewUser(null);
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 

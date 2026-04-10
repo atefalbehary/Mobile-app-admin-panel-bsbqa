@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api, uploadFile } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X, Image as ImageIcon, Loader2 } from "lucide-react";
 
@@ -57,26 +57,14 @@ const CreatePopupDialog = ({ open, onOpenChange }: CreatePopupDialogProps) => {
     reader.readAsDataURL(file);
 
     setUploading(true);
-    const ext = file.name.split(".").pop();
-    const fileName = `popup-${Date.now()}.${ext}`;
-
-    const { data, error } = await supabase.storage
-      .from("content-images")
-      .upload(fileName, file, { upsert: true });
-
-    if (error) {
-      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-      setUploading(false);
-      return;
+    try {
+      const url = await uploadFile(file, "content-images");
+      setImageUrl(url);
+      toast({ title: "Image uploaded" });
+    } catch (err: unknown) {
+      toast({ title: "Upload failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
-
-    const { data: urlData } = supabase.storage
-      .from("content-images")
-      .getPublicUrl(data.path);
-
-    setImageUrl(urlData.publicUrl);
     setUploading(false);
-    toast({ title: "Image uploaded" });
   };
 
   const handleRemoveImage = () => {
@@ -92,22 +80,28 @@ const CreatePopupDialog = ({ open, onOpenChange }: CreatePopupDialogProps) => {
     }
 
     setSaving(true);
-    const { error } = await supabase.from("content_items").insert({
-      title: form.title,
-      type: form.type,
-      status: form.status,
-      link: form.link || null,
-      image_url: imageUrl || null,
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
-    });
-
-    if (error) {
-      toast({ title: "Failed to create pop-up", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await api("/api/content-items", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title,
+          type: form.type,
+          status: form.status,
+          link: form.link || null,
+          image_url: imageUrl || null,
+          start_date: form.start_date || null,
+          end_date: form.end_date || null,
+        }),
+      });
       toast({ title: "Pop-up created successfully!" });
       resetForm();
       onOpenChange(false);
+    } catch (err: unknown) {
+      toast({
+        title: "Failed to create pop-up",
+        description: err instanceof Error ? err.message : "",
+        variant: "destructive",
+      });
     }
     setSaving(false);
   };

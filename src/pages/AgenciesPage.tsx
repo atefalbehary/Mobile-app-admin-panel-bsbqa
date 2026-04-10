@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -94,16 +94,15 @@ const AgenciesPage = () => {
 
   const fetchAgencies = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_type", "agency")
-      .order("created_at", { ascending: false });
-    const dbAgencies = (data || []) as Agency[];
-    const dbUserIds = new Set(dbAgencies.map((a) => a.user_id));
-    const merged = [...dbAgencies, ...dummyAgencies.filter((d) => !dbUserIds.has(d.user_id))];
-    setAgencies(merged);
-    if (error) console.error(error);
+    try {
+      const all = await api<Agency[]>("/api/profiles");
+      const dbAgencies = (all || []).filter((p) => p.user_type === "agency");
+      const dbUserIds = new Set(dbAgencies.map((a) => a.user_id));
+      const merged = [...dbAgencies, ...dummyAgencies.filter((d) => !dbUserIds.has(d.user_id))];
+      setAgencies(merged);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -128,10 +127,15 @@ const AgenciesPage = () => {
       toast({ title: `Agency ${!current ? "activated" : "deactivated"}` });
       return;
     }
-    const { error } = await supabase.from("profiles").update({ is_active: !current }).eq("user_id", userId);
-    if (!error) {
+    try {
+      await api("/api/profiles/" + userId, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: !current }),
+      });
       setAgencies((prev) => prev.map((a) => a.user_id === userId ? { ...a, is_active: !current } : a));
       toast({ title: `Agency ${!current ? "activated" : "deactivated"}` });
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 

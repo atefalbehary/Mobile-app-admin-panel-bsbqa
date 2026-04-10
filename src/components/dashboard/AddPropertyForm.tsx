@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api, uploadFile } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -12,15 +12,26 @@ import { Upload, Loader2 } from "lucide-react";
 const PropertyTypeSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
-    supabase.from("property_types" as any).select("id, name").eq("is_active", true).order("display_order").then(({ data }) => {
-      if (data && (data as any[]).length > 0) setTypes(data as any);
-      else setTypes([
-        { id: "apartment", name: "Apartment" }, { id: "villa", name: "Villa" },
-        { id: "office", name: "Office" }, { id: "land", name: "Land" },
-        { id: "penthouse", name: "Penthouse" }, { id: "townhouse", name: "Townhouse" },
-        { id: "studio", name: "Studio" },
-      ]);
-    });
+    api<{ id: string; name: string; is_active: boolean }[]>("/api/property-types")
+      .then((data) => {
+        const active = (data || []).filter((t) => t.is_active);
+        if (active.length > 0) setTypes(active.map((t) => ({ id: t.id, name: t.name })));
+        else
+          setTypes([
+            { id: "apartment", name: "Apartment" }, { id: "villa", name: "Villa" },
+            { id: "office", name: "Office" }, { id: "land", name: "Land" },
+            { id: "penthouse", name: "Penthouse" }, { id: "townhouse", name: "Townhouse" },
+            { id: "studio", name: "Studio" },
+          ]);
+      })
+      .catch(() =>
+        setTypes([
+          { id: "apartment", name: "Apartment" }, { id: "villa", name: "Villa" },
+          { id: "office", name: "Office" }, { id: "land", name: "Land" },
+          { id: "penthouse", name: "Penthouse" }, { id: "townhouse", name: "Townhouse" },
+          { id: "studio", name: "Studio" },
+        ])
+      );
   }, []);
   return (
     <div>
@@ -97,13 +108,13 @@ const AddPropertyForm = ({ onSuccess }: { onSuccess: () => void }) => {
 
   const set = (key: keyof PropertyForm, value: any) => setForm(prev => ({ ...prev, [key]: value }));
 
-  const uploadFile = async (file: File, folder: string): Promise<string | null> => {
-    const ext = file.name.split(".").pop();
-    const path = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("property-assets").upload(path, file);
-    if (error) { toast.error(`Upload failed: ${error.message}`); return null; }
-    const { data } = supabase.storage.from("property-assets").getPublicUrl(path);
-    return data.publicUrl;
+  const doUpload = async (file: File, folder: string): Promise<string | null> => {
+    try {
+      return await uploadFile(file, folder);
+    } catch {
+      toast.error("Upload failed");
+      return null;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -117,64 +128,60 @@ const AddPropertyForm = ({ onSuccess }: { onSuccess: () => void }) => {
       let brochure_url: string | null = null;
       let floor_plan_url: string | null = null;
 
-      if (files.unit_layout) unit_layout_url = await uploadFile(files.unit_layout, "unit-layouts");
-      if (files.brochure) brochure_url = await uploadFile(files.brochure, "brochures");
-      if (files.floor_plan) floor_plan_url = await uploadFile(files.floor_plan, "floor-plans");
+      if (files.unit_layout) unit_layout_url = await doUpload(files.unit_layout, "unit-layouts");
+      if (files.brochure) brochure_url = await doUpload(files.brochure, "brochures");
+      if (files.floor_plan) floor_plan_url = await doUpload(files.floor_plan, "floor-plans");
 
-      const { data: property, error } = await supabase.from("properties").insert({
-        name: form.name,
-        name_ar: form.name_ar || null,
-        location: form.location || null,
-        location_ar: form.location_ar || null,
-        price: form.price,
-        project: form.project || null,
-        bedroom_count: form.bedroom_count,
-        bathroom_count: form.bathroom_count,
-        gross_area: form.gross_area,
-        balcony_size: form.balcony_size,
-        net_area: form.net_area,
-        location_google_map_embed_link: form.location_google_map_embed_link || null,
-        sale_type: form.sale_type as any,
-        property_type: form.property_type as any,
-        status: form.status as any,
-        unit_number: form.unit_number || null,
-        floor_number: form.floor_number || null,
-        is_recommended: form.is_recommended,
-        is_featured: form.is_featured,
-        mark_as_sold: form.mark_as_sold,
-        similar_properties: form.similar_properties || null,
-        display_order: form.display_order,
-        description: form.description || null,
-        description_ar: form.description_ar || null,
-        amenities: form.amenities || null,
-        unit_layout_url,
-        brochure_url,
-        floor_plan_url,
-        video_youtube_embed_link: form.video_youtube_embed_link || null,
-        link_360: form.link_360 || null,
-        meta_title: form.meta_title || null,
-        meta_title_ar: form.meta_title_ar || null,
-        meta_description: form.meta_description || null,
-        meta_description_ar: form.meta_description_ar || null,
-        currency: form.currency,
-        whatsapp_number: form.whatsapp_number || null,
-      } as any).select().single();
-
-      if (error) throw error;
-
-      // Upload property images
-      if (imageFiles && imageFiles.length > 0 && property) {
+      const image_urls: string[] = [];
+      if (imageFiles && imageFiles.length > 0) {
         for (let i = 0; i < imageFiles.length; i++) {
-          const url = await uploadFile(imageFiles[i], "property-images");
-          if (url) {
-            await supabase.from("property_images").insert({
-              property_id: property.id,
-              image_url: url,
-              display_order: i,
-            });
-          }
+          const url = await doUpload(imageFiles[i], "property-images");
+          if (url) image_urls.push(url);
         }
       }
+
+      await api("/api/properties", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          name_ar: form.name_ar || null,
+          location: form.location || null,
+          location_ar: form.location_ar || null,
+          price: form.price,
+          project: form.project || null,
+          bedroom_count: form.bedroom_count,
+          bathroom_count: form.bathroom_count,
+          gross_area: form.gross_area,
+          balcony_size: form.balcony_size,
+          net_area: form.net_area,
+          location_google_map_embed_link: form.location_google_map_embed_link || null,
+          sale_type: form.sale_type,
+          property_type: form.property_type,
+          status: form.status,
+          unit_number: form.unit_number || null,
+          floor_number: form.floor_number || null,
+          is_recommended: form.is_recommended,
+          is_featured: form.is_featured,
+          mark_as_sold: form.mark_as_sold,
+          similar_properties: form.similar_properties || null,
+          display_order: form.display_order,
+          description: form.description || null,
+          description_ar: form.description_ar || null,
+          amenities: form.amenities || null,
+          unit_layout_url,
+          brochure_url,
+          floor_plan_url,
+          video_youtube_embed_link: form.video_youtube_embed_link || null,
+          link_360: form.link_360 || null,
+          meta_title: form.meta_title || null,
+          meta_title_ar: form.meta_title_ar || null,
+          meta_description: form.meta_description || null,
+          meta_description_ar: form.meta_description_ar || null,
+          currency: form.currency,
+          whatsapp_number: form.whatsapp_number || null,
+          image_urls,
+        }),
+      });
 
       toast.success("Property added successfully!");
       setForm(defaultForm);

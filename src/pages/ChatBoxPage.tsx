@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ChatMessage {
   id: string;
@@ -44,7 +45,8 @@ const ChatBoxPage = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adminUserId, setAdminUserId] = useState<string | null>(null);
+  const { user: adminUser } = useAuth();
+  const adminUserId = adminUser?.id ?? null;
   const [activeTab, setActiveTab] = useState<string>("conversations");
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -52,25 +54,18 @@ const ChatBoxPage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setAdminUserId(data.user.id);
-    });
-  }, []);
-
   const fetchConversations = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("chat_messages")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching messages:", error);
+    let allMessages: ChatMessage[] = [];
+    try {
+      allMessages = await api<ChatMessage[]>("/api/chat/messages");
+      allMessages = [...allMessages].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    } catch (e) {
+      console.error("Error fetching messages:", e);
       setLoading(false);
       return;
     }
-
-    const allMessages = (data || []) as ChatMessage[];
     const userMap = new Map<string, ConversationSummary>();
 
     allMessages.forEach((msg) => {
@@ -124,14 +119,11 @@ const ChatBoxPage = () => {
   const fetchAllUsers = useCallback(async () => {
     if (allUsers.length > 0) return; // already loaded
     setUsersLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("user_id, name, email, user_type, agency_name")
-      .order("name", { ascending: true });
-
-    if (!error && data) {
-      // Filter out admin user
-      setAllUsers((data as UserProfile[]).filter(u => u.user_id !== adminUserId));
+    try {
+      const data = await api<UserProfile[]>("/api/profiles/all-users");
+      setAllUsers((data || []).filter((u) => u.user_id !== adminUserId));
+    } catch {
+      setAllUsers([]);
     }
     setUsersLoading(false);
   }, [adminUserId, allUsers.length]);
@@ -143,34 +135,33 @@ const ChatBoxPage = () => {
   }, [activeTab, adminUserId, fetchAllUsers]);
 
   const fetchMessages = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from("chat_messages")
-      .select("*")
-      .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
-      .order("created_at", { ascending: true });
-
-    setMessages((data as ChatMessage[]) || []);
+    try {
+      const all = await api<ChatMessage[]>("/api/chat/messages");
+      const thread = (all || [])
+        .filter(
+          (m) =>
+            m.sender_id === userId ||
+            m.receiver_id === userId ||
+            (m.sender_type === "admin" && m.receiver_id === userId)
+        )
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      setMessages(thread);
+    } catch {
+      setMessages([]);
+    }
   }, []);
 
   useEffect(() => {
     if (selectedUserId) fetchMessages(selectedUserId);
   }, [selectedUserId, fetchMessages]);
 
-  // Realtime
   useEffect(() => {
-    const channel = supabase
-      .channel("chat-messages-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
-        const newMsg = payload.new as ChatMessage;
-        fetchConversations();
-        if (selectedUserId && (newMsg.sender_id === selectedUserId || newMsg.receiver_id === selectedUserId)) {
-          setMessages((prev) => [...prev, newMsg]);
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [selectedUserId, fetchConversations]);
+    const id = window.setInterval(() => {
+      fetchConversations();
+      if (selectedUserId) fetchMessages(selectedUserId);
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [selectedUserId, fetchConversations, fetchMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -179,19 +170,23 @@ const ChatBoxPage = () => {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedUserId || !adminUserId) return;
 
-    const { error } = await supabase.from("chat_messages").insert({
-      sender_id: adminUserId,
-      sender_name: "Admin Support",
-      sender_type: "admin",
-      receiver_id: selectedUserId,
-      message: newMessage.trim(),
-    } as any);
-
-    if (error) {
-      toast({ title: "Failed to send", description: error.message, variant: "destructive" });
-      return;
+    try {
+      await api("/api/chat/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          sender_id: adminUserId,
+          sender_name: "Admin Support",
+          sender_type: "admin",
+          receiver_id: selectedUserId,
+          message: newMessage.trim(),
+        }),
+      });
+      setNewMessage("");
+      fetchMessages(selectedUserId);
+      fetchConversations();
+    } catch (err: unknown) {
+      toast({ title: "Failed to send", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
-    setNewMessage("");
   };
 
   const handleSelectUser = (user: UserProfile) => {

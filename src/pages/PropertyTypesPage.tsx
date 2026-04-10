@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api, uploadFile } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,12 +36,12 @@ const PropertyTypesPage = () => {
 
   const fetchTypes = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("property_types" as any)
-      .select("*")
-      .order("display_order", { ascending: true });
-    if (error) toast.error(error.message);
-    else setTypes((data as any) || []);
+    try {
+      const data = await api<PropertyType[]>("/api/property-types");
+      setTypes(data || []);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load");
+    }
     setLoading(false);
   };
 
@@ -61,34 +61,23 @@ const PropertyTypesPage = () => {
     setDialogOpen(true);
   };
 
-  const uploadImage = async (file: File): Promise<string | null> => {
-    const ext = file.name.split(".").pop();
-    const path = `property-types/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("content-images").upload(path, file);
-    if (error) { toast.error(`Upload failed: ${error.message}`); return null; }
-    const { data } = supabase.storage.from("content-images").getPublicUrl(path);
-    return data.publicUrl;
-  };
-
   const handleSave = async () => {
     if (!name.trim()) { toast.error("Name is required"); return; }
     setSaving(true);
     try {
       let image_url = editing?.image_url || null;
       if (imageFile) {
-        image_url = await uploadImage(imageFile);
+        image_url = await uploadFile(imageFile, "property-types");
         if (!image_url && imageFile) { setSaving(false); return; }
       }
 
       const payload = { name, name_ar: nameAr || null, image_url, unit_count: unitCount, display_order: displayOrder, is_active: isActive };
 
       if (editing) {
-        const { error } = await (supabase.from("property_types" as any) as any).update(payload).eq("id", editing.id);
-        if (error) throw error;
+        await api("/api/property-types/" + editing.id, { method: "PATCH", body: JSON.stringify(payload) });
         toast.success("Property type updated!");
       } else {
-        const { error } = await (supabase.from("property_types" as any) as any).insert(payload);
-        if (error) throw error;
+        await api("/api/property-types", { method: "POST", body: JSON.stringify(payload) });
         toast.success("Property type created!");
       }
       setDialogOpen(false);
@@ -101,9 +90,13 @@ const PropertyTypesPage = () => {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this property type?")) return;
-    const { error } = await (supabase.from("property_types" as any) as any).delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else { toast.success("Deleted"); fetchTypes(); }
+    try {
+      await api("/api/property-types/" + id, { method: "DELETE" });
+      toast.success("Deleted");
+      fetchTypes();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

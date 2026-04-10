@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -129,12 +129,12 @@ const AutomaticNotifications = () => {
   // ==========================================
   const fetchRules = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("notification_rules" as any)
-      .select("*")
-      .order("created_at", { ascending: true });
-    if (data) setRules(data as any as NotificationRule[]);
-    if (error) console.error(error);
+    try {
+      const data = await api<NotificationRule[]>("/api/notification-rules");
+      setRules(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -144,13 +144,15 @@ const AutomaticNotifications = () => {
   // Toggle rule enabled/disabled
   // ==========================================
   const toggleRule = async (rule: NotificationRule) => {
-    const { error } = await supabase
-      .from("notification_rules" as any)
-      .update({ is_enabled: !rule.is_enabled } as any)
-      .eq("id", rule.id);
-    if (!error) {
-      setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, is_enabled: !r.is_enabled } : r));
+    try {
+      await api("/api/notification-rules/" + rule.id, {
+        method: "PATCH",
+        body: JSON.stringify({ is_enabled: !rule.is_enabled }),
+      });
+      setRules((prev) => prev.map((r) => (r.id === rule.id ? { ...r, is_enabled: !r.is_enabled } : r)));
       toast({ title: `${rule.name} ${!rule.is_enabled ? "enabled" : "disabled"}` });
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
     }
   };
 
@@ -172,14 +174,16 @@ const AutomaticNotifications = () => {
   // ==========================================
   const saveTemplate = async () => {
     if (!editRule) return;
-    const { error } = await supabase
-      .from("notification_rules" as any)
-      .update(editForm as any)
-      .eq("id", editRule.id);
-    if (!error) {
-      setRules((prev) => prev.map((r) => r.id === editRule.id ? { ...r, ...editForm } : r));
+    try {
+      await api("/api/notification-rules/" + editRule.id, {
+        method: "PATCH",
+        body: JSON.stringify(editForm),
+      });
+      setRules((prev) => prev.map((r) => (r.id === editRule.id ? { ...r, ...editForm } : r)));
       toast({ title: "Template updated" });
       setEditRule(null);
+    } catch {
+      toast({ title: "Save failed", variant: "destructive" });
     }
   };
 
@@ -192,43 +196,43 @@ const AutomaticNotifications = () => {
       return;
     }
     setSaving(true);
-    const { error } = await supabase
-      .from("notification_rules" as any)
-      .insert({
-        name: createForm.name,
-        trigger_type: createForm.trigger_type,
-        description: createForm.description || null,
-        audience: createForm.audience,
-        delivery_channel: createForm.delivery_channel,
-        template_title: createForm.template_title || null,
-        template_title_ar: createForm.template_title_ar || null,
-        template_body: createForm.template_body || null,
-        template_body_ar: createForm.template_body_ar || null,
-        is_enabled: createForm.is_enabled,
-      } as any);
-    setSaving(false);
-    if (error) {
-      console.error(error);
-      toast({ title: "Failed to create rule", variant: "destructive" });
-    } else {
+    try {
+      await api("/api/notification-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          name: createForm.name,
+          trigger_type: createForm.trigger_type,
+          description: createForm.description || null,
+          audience: createForm.audience,
+          delivery_channel: createForm.delivery_channel,
+          template_title: createForm.template_title || null,
+          template_title_ar: createForm.template_title_ar || null,
+          template_body: createForm.template_body || null,
+          template_body_ar: createForm.template_body_ar || null,
+          is_enabled: createForm.is_enabled,
+        }),
+      });
       toast({ title: "Rule created successfully" });
       setShowCreate(false);
       setCreateForm({ ...emptyCreateForm });
       fetchRules();
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Failed to create rule", variant: "destructive" });
     }
+    setSaving(false);
   };
 
   // ==========================================
   // Delete a rule
   // ==========================================
   const deleteRule = async (rule: NotificationRule) => {
-    const { error } = await supabase
-      .from("notification_rules" as any)
-      .delete()
-      .eq("id", rule.id);
-    if (!error) {
+    try {
+      await api("/api/notification-rules/" + rule.id, { method: "DELETE" });
       setRules((prev) => prev.filter((r) => r.id !== rule.id));
       toast({ title: `"${rule.name}" deleted` });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
     }
   };
 

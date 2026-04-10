@@ -1,11 +1,12 @@
 import NotificationBell from "@/components/dashboard/NotificationBell";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Header = () => {
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const { signOut } = useAuth();
+  const handleLogout = () => {
+    signOut();
   };
 
   return (

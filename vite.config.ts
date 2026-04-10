@@ -12,6 +12,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // Dev: browser calls same origin `/api/*` → forwarded to Node (avoids direct :4000 when API easy to forget)
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:4000",
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

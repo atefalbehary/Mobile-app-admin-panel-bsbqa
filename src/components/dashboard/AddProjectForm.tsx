@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api, uploadFile } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -64,16 +64,13 @@ const AddProjectForm = ({ onSuccess }: { onSuccess: () => void }) => {
   const set = (key: keyof ProjectForm, value: any) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const uploadFile = async (file: File, folder: string): Promise<string | null> => {
-    const ext = file.name.split(".").pop();
-    const path = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("property-assets").upload(path, file);
-    if (error) {
-      toast.error(`Upload failed: ${error.message}`);
+  const doUpload = async (file: File, folder: string): Promise<string | null> => {
+    try {
+      return await uploadFile(file, folder);
+    } catch {
+      toast.error("Upload failed");
       return null;
     }
-    const { data } = supabase.storage.from("property-assets").getPublicUrl(path);
-    return data.publicUrl;
   };
 
   const addImageRow = () => {
@@ -106,24 +103,31 @@ const AddProjectForm = ({ onSuccess }: { onSuccess: () => void }) => {
       let video_url: string | null = null;
       let video_thumbnail_url: string | null = null;
 
-      if (imageFile) image_url = await uploadFile(imageFile, "project-images");
-      if (appImageFile) app_image_url = await uploadFile(appImageFile, "project-images");
-      if (bannerFile) banner_url = await uploadFile(bannerFile, "project-banners");
-      if (videoFile) video_url = await uploadFile(videoFile, "project-videos");
-      if (videoThumbnailFile) video_thumbnail_url = await uploadFile(videoThumbnailFile, "project-thumbnails");
+      if (imageFile) image_url = await doUpload(imageFile, "project-images");
+      if (appImageFile) app_image_url = await doUpload(appImageFile, "project-images");
+      if (bannerFile) banner_url = await doUpload(bannerFile, "project-banners");
+      if (videoFile) video_url = await doUpload(videoFile, "project-videos");
+      if (videoThumbnailFile) video_thumbnail_url = await doUpload(videoThumbnailFile, "project-thumbnails");
 
-      const { data: project, error } = await supabase
-        .from("projects" as any)
-        .insert({
+      const gallery: { image_url: string; image_type: string }[] = [];
+      const validImages = projectImages.filter((img) => img.file && img.type);
+      for (const img of validImages) {
+        if (img.file) {
+          const url = await doUpload(img.file, "project-gallery");
+          if (url) gallery.push({ image_url: url, image_type: img.type });
+        }
+      }
+
+      await api("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({
           name: form.name,
           name_ar: form.name_ar || null,
           location: form.location || null,
           location_ar: form.location_ar || null,
           link_360: form.link_360 || null,
-          country: form.country || null,
+          country: 0,
           end_date: form.end_date || null,
-          status: form.status,
-          is_recommended: form.is_recommended,
           suggested_apartments: form.suggested_apartments || null,
           description: form.description || null,
           description_ar: form.description_ar || null,
@@ -132,28 +136,9 @@ const AddProjectForm = ({ onSuccess }: { onSuccess: () => void }) => {
           banner_url,
           video_url,
           video_thumbnail_url,
-        } as any)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Upload project images
-      const validImages = projectImages.filter((img) => img.file && img.type);
-      for (let i = 0; i < validImages.length; i++) {
-        const img = validImages[i];
-        if (img.file) {
-          const url = await uploadFile(img.file, "project-gallery");
-          if (url && project) {
-            await supabase.from("project_images" as any).insert({
-              project_id: (project as any).id,
-              image_url: url,
-              image_type: img.type,
-              display_order: i,
-            } as any);
-          }
-        }
-      }
+          gallery,
+        }),
+      });
 
       toast.success("Project added successfully!");
       setForm(defaultForm);

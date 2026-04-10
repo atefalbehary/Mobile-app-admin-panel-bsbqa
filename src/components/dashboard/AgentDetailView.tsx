@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ interface RegisteredClient {
 
 interface VisitSchedule {
   id: string;
+  agent_id?: string;
   agent_name: string;
   project_name: string;
   unit_type: string;
@@ -84,38 +85,38 @@ const AgentDetailView = ({ agent, onBack }: AgentDetailViewProps) => {
   }, []);
 
   const fetchClients = async () => {
-    const { data } = await supabase
-      .from("registered_clients" as any)
-      .select("*")
-      .eq("agent_id", agent.user_id)
-      .order("created_at", { ascending: false });
-    if (data) setClients(data as any);
+    try {
+      const data = await api<RegisteredClient[]>(`/api/clients?agent_id=${encodeURIComponent(agent.user_id)}`);
+      setClients(data || []);
+    } catch {
+      setClients([]);
+    }
   };
 
   const fetchVisits = async () => {
-    const { data } = await supabase
-      .from("visit_schedules" as any)
-      .select("*")
-      .eq("agent_id", agent.user_id)
-      .order("visit_date", { ascending: false });
-    if (data) setVisits(data as any);
+    try {
+      const all = await api<VisitSchedule[]>("/api/visit-schedules");
+      setVisits((all || []).filter((v) => v.agent_id === agent.user_id));
+    } catch {
+      setVisits([]);
+    }
   };
 
   const saveProfile = async () => {
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        name: editForm.name,
-        email: editForm.email,
-        phone: editForm.phone || null,
-        is_active: isActive,
-      })
-      .eq("user_id", agent.user_id);
-
-    if (error) {
-      toast({ title: "Error saving", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await api("/api/profiles/" + agent.user_id, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editForm.name,
+          email: editForm.email,
+          phone: editForm.phone || null,
+          is_active: isActive,
+        }),
+      });
       toast({ title: "Profile updated successfully" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error saving";
+      toast({ title: "Error saving", description: msg, variant: "destructive" });
     }
   };
 
@@ -160,22 +161,59 @@ const AgentDetailView = ({ agent, onBack }: AgentDetailViewProps) => {
       toast({ title: "Name and email are required", variant: "destructive" });
       return;
     }
+    const phoneDigits = clientForm.phone.replace(/\D/g, "") || "0";
     if (editingClient) {
-      const { error } = await supabase.from("registered_clients" as any).update(clientForm as any).eq("id", editingClient.id);
-      if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "Client updated" });
+      try {
+        await api("/api/clients/" + editingClient.id, {
+          method: "PATCH",
+          body: JSON.stringify({
+            client_name: clientForm.client_name,
+            email: clientForm.email,
+            phone: phoneDigits,
+            nationality: clientForm.nationality,
+            apartment_no: clientForm.apt_details,
+            apartment_type: "",
+          }),
+        });
+        toast({ title: "Client updated" });
+      } catch (err: unknown) {
+        toast({ title: "Error", description: err instanceof Error ? err.message : "", variant: "destructive" });
+        return;
+      }
     } else {
-      const { error } = await supabase.from("registered_clients" as any).insert({ ...clientForm, agent_id: agent.user_id } as any);
-      if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "Client added" });
+      try {
+        await api("/api/clients", {
+          method: "POST",
+          body: JSON.stringify({
+            agent_id: agent.user_id,
+            client_name: clientForm.client_name,
+            email: clientForm.email,
+            country_code: "+974",
+            phone: phoneDigits,
+            project_id: null,
+            nationality: clientForm.nationality,
+            apartment_no: clientForm.apt_details,
+            apartment_type: "",
+          }),
+        });
+        toast({ title: "Client added" });
+      } catch (err: unknown) {
+        toast({ title: "Error", description: err instanceof Error ? err.message : "", variant: "destructive" });
+        return;
+      }
     }
     setClientDialogOpen(false);
     fetchClients();
   };
 
   const deleteClient = async (id: string) => {
-    const { error } = await supabase.from("registered_clients" as any).delete().eq("id", id);
-    if (!error) { setClients((prev) => prev.filter((c) => c.id !== id)); toast({ title: "Client deleted" }); }
+    try {
+      await api("/api/clients/" + id, { method: "DELETE" });
+      setClients((prev) => prev.filter((c) => c.id !== id));
+      toast({ title: "Client deleted" });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    }
   };
 
   return (

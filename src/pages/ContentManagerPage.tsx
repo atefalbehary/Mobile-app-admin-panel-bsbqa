@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,49 +47,82 @@ const ContentManagerPage = () => {
 
   const fetchContent = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("content_items").select("*").order("created_at", { ascending: false });
-    if (data) setContent(data);
-    if (error) console.error(error);
+    try {
+      const data = await api<ContentItem[]>("/api/content-items");
+      setContent(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
   useEffect(() => { fetchContent(); }, []);
 
   const handleSave = async (item: Partial<ContentItem>) => {
-    if (editing) {
-      const { error } = await supabase.from("content_items").update({
-        title: item.title,
-        type: item.type,
-        status: item.status,
-        link: item.link || null,
-        start_date: item.start_date || null,
-        end_date: item.end_date || null,
-      }).eq("id", editing.id);
-      if (!error) { toast({ title: "Content updated" }); fetchContent(); }
-    } else {
-      const { error } = await supabase.from("content_items").insert({
-        title: item.title || "",
-        type: item.type || "popup",
-        status: item.status || "inactive",
-        link: item.link || null,
-        start_date: item.start_date || null,
-        end_date: item.end_date || null,
-      });
-      if (!error) { toast({ title: "Content created" }); fetchContent(); }
+    try {
+      if (editing) {
+        await api("/api/content-items/" + editing.id, {
+          method: "PATCH",
+          body: JSON.stringify({
+            title: item.title,
+            type: item.type,
+            status: item.status,
+            link: item.link || null,
+            start_date: item.start_date || null,
+            end_date: item.end_date || null,
+          }),
+        });
+        toast({ title: "Content updated" });
+      } else {
+        await api("/api/content-items", {
+          method: "POST",
+          body: JSON.stringify({
+            title: item.title || "",
+            type: item.type || "popup",
+            status: item.status || "inactive",
+            link: item.link || null,
+            start_date: item.start_date || null,
+            end_date: item.end_date || null,
+          }),
+        });
+        toast({ title: "Content created" });
+      }
+      fetchContent();
+    } catch {
+      toast({ title: "Save failed", variant: "destructive" });
     }
     setIsDialogOpen(false);
     setEditing(null);
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("content_items").delete().eq("id", id);
-    if (!error) { setContent((prev) => prev.filter((c) => c.id !== id)); toast({ title: "Content deleted" }); }
+    try {
+      await api("/api/content-items/" + id, { method: "DELETE" });
+      setContent((prev) => prev.filter((c) => c.id !== id));
+      toast({ title: "Content deleted" });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    }
   };
 
   const handleToggleStatus = async (item: ContentItem) => {
     const newStatus = item.status === "active" ? "inactive" : "active";
-    const { error } = await supabase.from("content_items").update({ status: newStatus }).eq("id", item.id);
-    if (!error) { setContent((prev) => prev.map((c) => c.id === item.id ? { ...c, status: newStatus } : c)); }
+    try {
+      await api("/api/content-items/" + item.id, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: item.title,
+          type: item.type,
+          status: newStatus,
+          link: item.link,
+          start_date: item.start_date,
+          end_date: item.end_date,
+        }),
+      });
+      setContent((prev) => prev.map((c) => (c.id === item.id ? { ...c, status: newStatus } : c)));
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
+    }
   };
 
   if (showAddProperty) {
