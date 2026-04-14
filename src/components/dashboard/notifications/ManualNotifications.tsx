@@ -24,22 +24,35 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
     body_ar: "",
     type: "push",
     target: "all",
+    specific_emails: "",
     deep_link: "",
     scheduled_date: "",
     scheduled_time: "",
   });
   const [sending, setSending] = useState(false);
 
-  const isValid = form.title.trim().length > 0;
+  const parseSpecificEmails = (value: string) =>
+    value
+      .split(/[,\n]/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+  const isEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const parsedSpecificEmails = parseSpecificEmails(form.specific_emails);
+  const hasValidSpecificEmails =
+    parsedSpecificEmails.length > 0 && parsedSpecificEmails.every((email) => isEmail(email));
+
+  const isValid =
+    form.title.trim().length > 0 &&
+    (form.target !== "specific_email" || hasValidSpecificEmails);
   const isScheduleValid = isValid && form.scheduled_date && form.scheduled_time;
 
   const resetForm = () => {
-    setForm({ title: "", title_ar: "", body: "", body_ar: "", type: "push", target: "all", deep_link: "", scheduled_date: "", scheduled_time: "" });
+    setForm({ title: "", title_ar: "", body: "", body_ar: "", type: "push", target: "all", specific_emails: "", deep_link: "", scheduled_date: "", scheduled_time: "" });
   };
 
   const handleSendNow = async () => {
     if (!isValid) {
-      toast({ title: "Title is required", variant: "destructive" });
+      toast({ title: "Please complete required fields", description: "Enter title and valid target emails.", variant: "destructive" });
       return;
     }
     setSending(true);
@@ -53,6 +66,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           body_ar: form.body_ar || null,
           type: form.type,
           target: form.target,
+          specific_emails: form.target === "specific_email" ? parsedSpecificEmails : [],
           status: "sent",
           source_type: "manual",
           trigger_type: "manual_campaign",
@@ -60,6 +74,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           deep_link: form.deep_link || null,
           sent_at: new Date().toISOString(),
           recipient_count: 0,
+          send_email_also: true,
         }),
       });
       toast({ title: "Notification sent!" });
@@ -88,6 +103,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           body_ar: form.body_ar || null,
           type: form.type,
           target: form.target,
+          specific_emails: form.target === "specific_email" ? parsedSpecificEmails : [],
           status: "scheduled",
           source_type: "manual",
           trigger_type: "manual_campaign",
@@ -95,6 +111,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           deep_link: form.deep_link || null,
           scheduled_at: scheduledAt,
           recipient_count: 0,
+          send_email_also: true,
         }),
       });
       toast({ title: "Notification scheduled!" });
@@ -118,6 +135,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           body_ar: form.body_ar || null,
           type: form.type,
           target: form.target,
+          specific_emails: form.target === "specific_email" ? parsedSpecificEmails : [],
           status: "draft",
           source_type: "manual",
           trigger_type: "manual_campaign",
@@ -240,10 +258,28 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
                 <SelectItem value="agents">Agents Only</SelectItem>
                 <SelectItem value="agencies">Agencies Only</SelectItem>
                 <SelectItem value="approved">Approved Users</SelectItem>
+                <SelectItem value="specific_email">Specific Email(s)</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
+        {form.target === "specific_email" && (
+          <div className="space-y-2">
+            <Label className="text-muted-foreground text-sm">
+              Recipient Email(s) <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              value={form.specific_emails}
+              onChange={(e) => setForm({ ...form, specific_emails: e.target.value })}
+              placeholder="Enter one or more emails, separated by comma or new line"
+              className="bg-secondary border-border"
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              Example: user1@example.com, user2@example.com
+            </p>
+          </div>
+        )}
 
         {/* Deep Link */}
         <div className="space-y-2">

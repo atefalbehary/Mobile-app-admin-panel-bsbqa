@@ -75,6 +75,29 @@ export async function ensureSchema(pool) {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_admin_user_notifications (
+      id CHAR(36) NOT NULL PRIMARY KEY,
+      campaign_id CHAR(36) NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      title_ar VARCHAR(255) NULL,
+      body TEXT NULL,
+      body_ar TEXT NULL,
+      channel VARCHAR(40) NOT NULL DEFAULT 'push',
+      target VARCHAR(80) NOT NULL DEFAULT 'all',
+      deep_link VARCHAR(1500) NULL,
+      is_read TINYINT(1) NOT NULL DEFAULT 0,
+      read_at DATETIME NULL,
+      sent_at DATETIME NULL,
+      metadata JSON NULL,
+      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_mobile_admin_user_notifications_user_id (user_id),
+      INDEX idx_mobile_admin_user_notifications_campaign_id (campaign_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS mobile_admin_content_items (
       id CHAR(36) NOT NULL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,

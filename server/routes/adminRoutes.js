@@ -6,6 +6,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
+import nodemailer from "nodemailer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +72,15 @@ function mapProperty(row) {
   };
 }
 
+function htmlEscape(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function registerAdminRoutes(app, pool, jwtSecret) {
   const router = express.Router();
   const uploadDir = path.join(__dirname, "..", "uploads");
@@ -126,6 +136,119 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
       if (a.agency_name) map[a.id] = a.agency_name;
     }
     return map;
+  }
+
+  function parseSpecificEmails(input) {
+    const list = Array.isArray(input) ? input : String(input || "").split(/[,\n]/);
+    return [...new Set(list.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean))];
+  }
+
+  async function resolveNotificationRecipients(target, specificEmailsInput) {
+    const targetKey = String(target || "all").toLowerCase();
+    if (targetKey === "specific_email") {
+      const emails = parseSpecificEmails(specificEmailsInput);
+      if (!emails.length) {
+        return [];
+      }
+      const placeholders = emails.map(() => "?").join(",");
+      const [rows] = await pool.query(
+        `SELECT id, name, email, role, verified FROM users
+         WHERE deleted = 0 AND role IN ('2','3','4') AND LOWER(email) IN (${placeholders})
+         ORDER BY id ASC`,
+        emails
+      );
+      return rows.map((r) => ({
+        id: Number(r.id),
+        name: r.name || "",
+        email: r.email ? String(r.email).trim().toLowerCase() : "",
+      }));
+    }
+
+    let sql =
+      "SELECT id, name, email, role, verified FROM users WHERE deleted = 0 AND role IN ('2','3','4')";
+    if (targetKey === "agents") sql += " AND role = '3'";
+    if (targetKey === "agencies") sql += " AND role = '4'";
+    if (targetKey === "approved") sql += " AND verified = 1";
+    sql += " ORDER BY id ASC";
+    const [rows] = await pool.query(sql);
+    return rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name || "",
+      email: r.email ? String(r.email).trim() : "",
+    }));
+  }
+
+  async function persistUserNotifications(campaignId, payload, recipients, sentAt) {
+    if (!recipients.length) return 0;
+    const values = [];
+    const placeholders = [];
+    for (const recipient of recipients) {
+      placeholders.push("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+      values.push(
+        randomUUID(),
+        campaignId,
+        recipient.id,
+        payload.title,
+        payload.title_ar || null,
+        payload.body || null,
+        payload.body_ar || null,
+        payload.delivery_channel || payload.type || "push",
+        payload.target || "all",
+        payload.deep_link || null,
+        sentAt || null,
+        JSON.stringify({ source_type: payload.source_type || "manual" })
+      );
+    }
+    await pool.query(
+      `INSERT INTO mobile_admin_user_notifications
+      (id, campaign_id, user_id, title, title_ar, body, body_ar, channel, target, deep_link, sent_at, metadata, created_at, updated_at)
+      VALUES ${placeholders.join(",")}`,
+      values
+    );
+    return recipients.length;
+  }
+
+  async function sendNotificationEmails(payload, recipients) {
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT || 587);
+    const secure = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const from = process.env.NOTIFICATION_EMAIL_FROM || user;
+    if (!host || !from) return { attempted: false, sent: 0, reason: "SMTP not configured" };
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: user && pass ? { user, pass } : undefined,
+    });
+
+    let sent = 0;
+    const toList = recipients.map((r) => r.email).filter(Boolean);
+    if (!toList.length) return { attempted: false, sent: 0, reason: "No recipient email addresses" };
+
+    const subject = payload.title || "New notification";
+    const safeTitle = htmlEscape(payload.title || "");
+    const safeBody = htmlEscape(payload.body || "");
+    const safeLink = payload.deep_link ? htmlEscape(payload.deep_link) : null;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
+        <h2 style="margin:0 0 12px">${safeTitle}</h2>
+        ${safeBody ? `<p style="white-space:pre-wrap;margin:0 0 12px">${safeBody}</p>` : ""}
+        ${safeLink ? `<p style="margin:0"><a href="${safeLink}" target="_blank" rel="noreferrer">${safeLink}</a></p>` : ""}
+      </div>
+    `;
+    await transporter.sendMail({
+      from,
+      to: from,
+      bcc: toList,
+      subject,
+      text: [payload.title || "", payload.body || "", payload.deep_link || ""].filter(Boolean).join("\n\n"),
+      html,
+    });
+    sent = toList.length;
+    return { attempted: true, sent, reason: null };
   }
 
   router.get("/profiles", auth, async (req, res) => {
@@ -557,32 +680,104 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
     res.json(rows.map((r) => ({ ...r, id: r.id, open_rate: r.open_rate != null ? Number(r.open_rate) : null })));
   });
 
-  router.post("/push-campaigns", auth, async (req, res) => {
-    const b = req.body || {};
-    const id = randomUUID();
-    await pool.query(
-      `INSERT INTO mobile_admin_push_campaigns (id, title, title_ar, body, body_ar, type, target, status, source_type, trigger_type, delivery_channel, deep_link, scheduled_at, sent_at, recipient_count, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [
-        id,
-        b.title,
-        b.title_ar,
-        b.body,
-        b.body_ar,
-        b.type || "push",
-        b.target || "all",
-        b.status || "sent",
-        b.source_type || "manual",
-        b.trigger_type || "manual_campaign",
-        b.delivery_channel || "push",
-        b.deep_link,
-        b.scheduled_at || null,
-        b.sent_at || null,
-        b.recipient_count ?? 0,
-        req.admin.sub,
-      ]
+  router.get("/notifications", auth, async (req, res) => {
+    const userId = req.query.user_id ? Number(req.query.user_id) : null;
+    const limit = Math.min(Number(req.query.limit || 100), 500);
+    const args = [];
+    let where = "";
+    if (userId) {
+      where = "WHERE n.user_id = ?";
+      args.push(userId);
+    }
+    const [rows] = await pool.query(
+      `SELECT n.*, c.status AS campaign_status
+       FROM mobile_admin_user_notifications n
+       LEFT JOIN mobile_admin_push_campaigns c ON c.id = n.campaign_id
+       ${where}
+       ORDER BY n.created_at DESC
+       LIMIT ?`,
+      [...args, limit]
     );
-    res.json({ id });
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        campaign_id: r.campaign_id,
+        user_id: String(r.user_id),
+        title: r.title,
+        title_ar: r.title_ar,
+        body: r.body,
+        body_ar: r.body_ar,
+        channel: r.channel,
+        target: r.target,
+        deep_link: r.deep_link,
+        is_read: !!r.is_read,
+        read_at: r.read_at ? new Date(r.read_at).toISOString() : null,
+        sent_at: r.sent_at ? new Date(r.sent_at).toISOString() : null,
+        campaign_status: r.campaign_status || null,
+        metadata: r.metadata ? JSON.parse(JSON.stringify(r.metadata)) : null,
+        created_at: r.created_at ? new Date(r.created_at).toISOString() : null,
+        updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+      }))
+    );
+  });
+
+  router.post("/push-campaigns", auth, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const id = randomUUID();
+      const resolvedRecipients = await resolveNotificationRecipients(b.target || "all", b.specific_emails);
+      if ((b.target || "").toLowerCase() === "specific_email" && !resolvedRecipients.length) {
+        return res.status(400).json({ error: "No users found for provided email(s)" });
+      }
+      const recipientCount = resolvedRecipients.length;
+      const sentAt =
+        b.status === "sent" ? b.sent_at || new Date().toISOString() : b.sent_at || null;
+
+      await pool.query(
+        `INSERT INTO mobile_admin_push_campaigns (id, title, title_ar, body, body_ar, type, target, status, source_type, trigger_type, delivery_channel, deep_link, scheduled_at, sent_at, recipient_count, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [
+          id,
+          b.title,
+          b.title_ar,
+          b.body,
+          b.body_ar,
+          b.type || "push",
+          b.target || "all",
+          b.status || "sent",
+          b.source_type || "manual",
+          b.trigger_type || "manual_campaign",
+          b.delivery_channel || b.type || "push",
+          b.deep_link,
+          b.scheduled_at || null,
+          sentAt,
+          recipientCount,
+          req.admin.sub,
+        ]
+      );
+
+      await persistUserNotifications(
+        id,
+        {
+          ...b,
+          delivery_channel: b.delivery_channel || b.type || "push",
+        },
+        resolvedRecipients,
+        sentAt
+      );
+
+      let email = { attempted: false, sent: 0, reason: null };
+      const shouldSendEmailNow = (b.status || "sent") === "sent" && (b.send_email_also === true || b.type === "email");
+      if (shouldSendEmailNow) {
+        email = await sendNotificationEmails(b, resolvedRecipients);
+      }
+      res.json({ id, recipient_count: recipientCount, email });
+    } catch (err) {
+      res.status(500).json({
+        error: "Failed to create notification campaign",
+        details: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
   });
 
   router.delete("/push-campaigns/:id", auth, async (req, res) => {

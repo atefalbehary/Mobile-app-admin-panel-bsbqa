@@ -1,0 +1,450 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-mobile-admin-api",
+    "name": "Mobile Admin API (Node + MySQL)",
+    "description": "REST API for the Vite admin panel (`server/`). Base path: `/api`.\n\n**Auth:** `POST /api/auth/login` returns `token`. Collection uses Bearer `{{token}}` (set automatically by Login test script).\n\n**Admin users:** Laravel `users` where `role = '1'` OR `role_id` is set.\n\n**Local default:** `baseUrl` = `http://127.0.0.1:4000`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:4000" },
+    { "key": "token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  try {",
+                  "    const j = pm.response.json();",
+                  "    if (j.token) { pm.collectionVariables.set('token', j.token); }",
+                  "  } catch (e) {}",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"your-password\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Returns `{ token, user }`. Saves `token` to collection variable."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": "Current user from JWT (`sub` = user id)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Profiles",
+      "item": [
+        {
+          "name": "List profiles (mobile users 2,3,4)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/profiles"
+          }
+        },
+        {
+          "name": "Patch profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": true,\n  \"approval_status\": \"approved\",\n  \"name\": \"\",\n  \"email\": \"\",\n  \"phone\": \"\"\n}"
+            },
+            "url": "{{baseUrl}}/api/profiles/1",
+            "description": "Send only fields to change. `approval_status`: `approved` sets `verified=1`."
+          }
+        },
+        {
+          "name": "All users (chat picker)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/profiles/all-users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Properties",
+      "item": [
+        {
+          "name": "List properties",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/properties"
+          }
+        },
+        {
+          "name": "Create property",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Villa\",\n  \"name_ar\": \"\",\n  \"description\": \"\",\n  \"description_ar\": \"\",\n  \"location\": \"Doha\",\n  \"location_ar\": \"\",\n  \"price\": 1000000,\n  \"bedroom_count\": 3,\n  \"bathroom_count\": 2,\n  \"gross_area\": 200,\n  \"balcony_size\": 10,\n  \"net_area\": 180,\n  \"location_google_map_embed_link\": \"\",\n  \"sale_type\": \"sale\",\n  \"property_type\": \"apartment\",\n  \"unit_number\": \"101\",\n  \"floor_number\": \"1\",\n  \"project\": \"Project name\",\n  \"is_recommended\": false,\n  \"is_featured\": false,\n  \"mark_as_sold\": false,\n  \"similar_properties\": \"\",\n  \"display_order\": 10,\n  \"amenities\": \"\",\n  \"link_360\": \"\",\n  \"meta_title\": \"\",\n  \"meta_title_ar\": \"\",\n  \"meta_description\": \"\",\n  \"meta_description_ar\": \"\",\n  \"unit_layout_url\": null,\n  \"brochure_url\": null,\n  \"floor_plan_url\": null,\n  \"video_youtube_embed_link\": \"\",\n  \"currency\": \"QAR\",\n  \"image_urls\": [\"https://example.com/a.jpg\"]\n}"
+            },
+            "url": "{{baseUrl}}/api/properties"
+          }
+        },
+        {
+          "name": "Soft-delete property",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/properties/1"
+          }
+        },
+        {
+          "name": "Delete properties (batch)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"ids\": [\"1\", \"2\"]\n}" },
+            "url": "{{baseUrl}}/api/properties/delete-batch"
+          }
+        },
+        {
+          "name": "Toggle featured",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"is_featured\": true\n}" },
+            "url": "{{baseUrl}}/api/properties/1/featured"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Property types (categories)",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/property-types" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Apartment\",\n  \"name_ar\": \"\",\n  \"image_url\": null,\n  \"unit_count\": 0,\n  \"display_order\": 0,\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/property-types"
+          }
+        },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Apartment\",\n  \"name_ar\": \"\",\n  \"image_url\": null,\n  \"unit_count\": 0,\n  \"display_order\": 0,\n  \"is_active\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/property-types/1"
+          }
+        },
+        {
+          "name": "Delete (soft)",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/property-types/1" }
+        }
+      ]
+    },
+    {
+      "name": "Visit schedules",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/visit-schedules" }
+        },
+        {
+          "name": "Delete by ids",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"ids\": [\"1\", \"2\"]\n}" },
+            "url": "{{baseUrl}}/api/visit-schedules"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clients",
+      "item": [
+        {
+          "name": "List by agent",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/clients?agent_id=123"
+          }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"123\",\n  \"client_name\": \"John\",\n  \"email\": \"j@example.com\",\n  \"country_code\": \"+974\",\n  \"phone\": \"12345678\",\n  \"project_id\": null,\n  \"nationality\": \"QA\",\n  \"apartment_no\": \"101\",\n  \"apartment_type\": \"2BR\"\n}"
+            },
+            "url": "{{baseUrl}}/api/clients"
+          }
+        },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_name\": \"John\",\n  \"email\": \"j@example.com\",\n  \"phone\": \"12345678\",\n  \"nationality\": \"QA\",\n  \"apartment_no\": \"101\",\n  \"apartment_type\": \"2BR\"\n}"
+            },
+            "url": "{{baseUrl}}/api/clients/1"
+          }
+        },
+        {
+          "name": "Delete",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/clients/1" }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Stats",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/stats" }
+        }
+      ]
+    },
+    {
+      "name": "CRM bookings",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/crm-bookings" }
+        },
+        {
+          "name": "Update status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"confirmed\"\n}" },
+            "url": "{{baseUrl}}/api/crm-bookings/00000000-0000-0000-0000-000000000000"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notification rules",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/notification-rules" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trigger_type\": \"visit_reminder\",\n  \"name\": \"Rule name\",\n  \"description\": null,\n  \"is_enabled\": true,\n  \"audience\": \"agents\",\n  \"delivery_channel\": \"push\",\n  \"template_title\": null,\n  \"template_title_ar\": null,\n  \"template_body\": null,\n  \"template_body_ar\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/notification-rules"
+          }
+        },
+        {
+          "name": "Patch (merge)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_enabled\": false,\n  \"template_title\": \"Hi\",\n  \"template_title_ar\": \"\",\n  \"template_body\": \"\",\n  \"template_body_ar\": \"\"\n}"
+            },
+            "url": "{{baseUrl}}/api/notification-rules/1"
+          }
+        },
+        {
+          "name": "Delete",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/notification-rules/1" }
+        }
+      ]
+    },
+    {
+      "name": "Bell notifications",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/bell-notifications" }
+        },
+        {
+          "name": "Mark read",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"uuid-here\"\n}"
+            },
+            "description": "Or `{ \"mark_all\": true }` for all unread.",
+            "url": "{{baseUrl}}/api/bell-notifications/read"
+          }
+        },
+        {
+          "name": "Mark all read",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"mark_all\": true\n}" },
+            "url": "{{baseUrl}}/api/bell-notifications/read"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Push campaigns",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/push-campaigns" }
+        },
+        {
+          "name": "Create (manual / scheduled / draft)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Hello\",\n  \"title_ar\": null,\n  \"body\": \"Body\",\n  \"body_ar\": null,\n  \"type\": \"push\",\n  \"target\": \"all\",\n  \"status\": \"sent\",\n  \"source_type\": \"manual\",\n  \"trigger_type\": \"manual_campaign\",\n  \"delivery_channel\": \"push\",\n  \"deep_link\": null,\n  \"scheduled_at\": null,\n  \"sent_at\": \"2026-01-01T00:00:00.000Z\",\n  \"recipient_count\": 0,\n  \"send_email_also\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/push-campaigns"
+          }
+        },
+        {
+          "name": "Delete",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/push-campaigns/00000000-0000-0000-0000-000000000000" }
+        }
+      ]
+    },
+    {
+      "name": "Content items",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/content-items" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Promo\",\n  \"type\": \"popup\",\n  \"status\": \"inactive\",\n  \"image_url\": null,\n  \"link\": null,\n  \"start_date\": null,\n  \"end_date\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/content-items"
+          }
+        },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Promo\",\n  \"type\": \"popup\",\n  \"status\": \"active\",\n  \"link\": \"https://example.com\",\n  \"start_date\": \"2026-01-01\",\n  \"end_date\": \"2026-12-31\"\n}"
+            },
+            "url": "{{baseUrl}}/api/content-items/00000000-0000-0000-0000-000000000000"
+          }
+        },
+        {
+          "name": "Delete",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/content-items/00000000-0000-0000-0000-000000000000" }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "List messages",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/chat/messages" }
+        },
+        {
+          "name": "Send message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sender_id\": \"1\",\n  \"sender_name\": \"Admin Support\",\n  \"sender_type\": \"admin\",\n  \"receiver_id\": \"2\",\n  \"message\": \"Hello\"\n}"
+            },
+            "url": "{{baseUrl}}/api/chat/messages"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Upload",
+      "item": [
+        {
+          "name": "Upload file (multipart)",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            },
+            "url": "{{baseUrl}}/api/upload",
+            "description": "Field name must be `file`. Response: `{ url }`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "Create project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Project\",\n  \"name_ar\": \"\",\n  \"location\": \"\",\n  \"location_ar\": \"\",\n  \"image_url\": \"\",\n  \"app_image_url\": \"\",\n  \"banner_url\": \"\",\n  \"video_url\": \"\",\n  \"video_thumbnail_url\": \"\",\n  \"link_360\": \"\",\n  \"description\": \"\",\n  \"description_ar\": \"\",\n  \"suggested_apartments\": \"\",\n  \"country\": 0,\n  \"end_date\": null,\n  \"gallery\": [\n    { \"image_url\": \"https://example.com/p.jpg\", \"image_type\": \"Gallery\" }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/projects"
+          }
+        }
+      ]
+    }
+  ]
+}
