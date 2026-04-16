@@ -14,6 +14,12 @@ interface ManualNotificationsProps {
 
 type SubTab = "send_now" | "schedule";
 
+type PushCampaignResponse = {
+  id: string;
+  recipient_count: number;
+  email?: { attempted: boolean; sent: number; reason: string | null };
+};
+
 const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
   const { toast } = useToast();
   const [subTab, setSubTab] = useState<SubTab>("send_now");
@@ -57,7 +63,7 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
     }
     setSending(true);
     try {
-      await api("/api/push-campaigns", {
+      const data = await api<PushCampaignResponse>("/api/push-campaigns", {
         method: "POST",
         body: JSON.stringify({
           title: form.title,
@@ -77,7 +83,21 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           send_email_also: true,
         }),
       });
-      toast({ title: "Notification sent!" });
+      const em = data.email;
+      if (em?.reason) {
+        toast({
+          title: "Notification saved",
+          description: `Email was not sent: ${em.reason}. Add SMTP settings to the project .env and restart the API.`,
+          variant: "destructive",
+        });
+      } else if (em?.attempted && em.sent > 0) {
+        toast({
+          title: "Notification sent!",
+          description: `Email sent (BCC) to ${em.sent} recipient(s).`,
+        });
+      } else {
+        toast({ title: "Notification sent!" });
+      }
       resetForm();
       onSent();
     } catch (err: unknown) {

@@ -7,6 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import nodemailer from "nodemailer";
+import { resolveOutboundMailEnv } from "../mailEnv.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -209,13 +210,29 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
   }
 
   async function sendNotificationEmails(payload, recipients) {
-    const host = process.env.SMTP_HOST;
-    const port = Number(process.env.SMTP_PORT || 587);
-    const secure = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const from = process.env.NOTIFICATION_EMAIL_FROM || user;
-    if (!host || !from) return { attempted: false, sent: 0, reason: "SMTP not configured" };
+    const { host, port, secure, user, pass, from } = resolveOutboundMailEnv();
+    if (!host && !from) {
+      return {
+        attempted: false,
+        sent: 0,
+        reason:
+          "Missing mail host and from: set SMTP_HOST or MAIL_HOST, and NOTIFICATION_EMAIL_FROM / MAIL_FROM_ADDRESS or MAIL_USERNAME / SMTP_USER. Restart the API after editing .env.",
+      };
+    }
+    if (!host) {
+      return {
+        attempted: false,
+        sent: 0,
+        reason: "Missing SMTP_HOST or MAIL_HOST in .env.",
+      };
+    }
+    if (!from) {
+      return {
+        attempted: false,
+        sent: 0,
+        reason: "Missing from address: set NOTIFICATION_EMAIL_FROM, MAIL_FROM_ADDRESS, or MAIL_USERNAME / SMTP_USER.",
+      };
+    }
 
     const transporter = nodemailer.createTransport({
       host,
@@ -239,16 +256,22 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
         ${safeLink ? `<p style="margin:0"><a href="${safeLink}" target="_blank" rel="noreferrer">${safeLink}</a></p>` : ""}
       </div>
     `;
-    await transporter.sendMail({
-      from,
-      to: from,
-      bcc: toList,
-      subject,
-      text: [payload.title || "", payload.body || "", payload.deep_link || ""].filter(Boolean).join("\n\n"),
-      html,
-    });
-    sent = toList.length;
-    return { attempted: true, sent, reason: null };
+    try {
+      await transporter.sendMail({
+        from,
+        to: from,
+        bcc: toList,
+        subject,
+        text: [payload.title || "", payload.body || "", payload.deep_link || ""].filter(Boolean).join("\n\n"),
+        html,
+      });
+      sent = toList.length;
+      return { attempted: true, sent, reason: null };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[sendNotificationEmails] SMTP error:", msg);
+      return { attempted: true, sent: 0, reason: msg };
+    }
   }
 
   router.get("/profiles", auth, async (req, res) => {
