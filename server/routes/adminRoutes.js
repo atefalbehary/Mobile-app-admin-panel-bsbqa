@@ -74,6 +74,14 @@ function mapProperty(row) {
   };
 }
 
+/** ISO strings like 2026-04-21T15:17:42.575Z are not accepted for DATETIME in strict MySQL; normalize to UTC wall time. */
+function toMysqlDateTime(value) {
+  if (value == null || value === "") return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 export function registerAdminRoutes(app, pool, jwtSecret) {
   const router = express.Router();
   const uploadDir = path.join(__dirname, "..", "uploads");
@@ -808,8 +816,12 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
         return res.status(400).json({ error: "No users found for provided email(s)" });
       }
       const recipientCount = resolvedRecipients.length;
-      const sentAt =
+      const rawSentAt =
         b.status === "sent" ? b.sent_at || new Date().toISOString() : b.sent_at || null;
+      let sentAt = toMysqlDateTime(rawSentAt);
+      if (String(b.status || "sent").toLowerCase() === "sent" && !sentAt) {
+        sentAt = toMysqlDateTime(new Date());
+      }
 
       await pool.query(
         `INSERT INTO mobile_admin_push_campaigns (id, title, title_ar, body, body_ar, type, target, status, source_type, trigger_type, delivery_channel, deep_link, scheduled_at, sent_at, recipient_count, created_by, created_at, updated_at)
@@ -827,7 +839,7 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
           b.trigger_type || "manual_campaign",
           b.delivery_channel || b.type || "push",
           b.deep_link,
-          b.scheduled_at || null,
+          toMysqlDateTime(b.scheduled_at),
           sentAt,
           recipientCount,
           req.admin.sub,
