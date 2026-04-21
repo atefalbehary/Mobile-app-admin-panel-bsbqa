@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "mail:test": "node scripts/testEmail.js",
+    "mail:dns": "node scripts/checkMailDns.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

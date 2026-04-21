@@ -20,6 +20,20 @@ type PushCampaignResponse = {
   email?: { attempted: boolean; sent: number; reason: string | null };
 };
 
+type MailTestResponse = {
+  ok: boolean;
+  verify: string;
+  config: { host: string; port: number; secure: boolean; user: string | null; from: string };
+  sent: {
+    accepted: string[];
+    rejected: string[];
+    pending?: string[];
+    response?: string | null;
+    envelope?: { from?: string; to?: string[] } | null;
+    message_id: string | null;
+  } | null;
+};
+
 const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
   const { toast } = useToast();
   const [subTab, setSubTab] = useState<SubTab>("send_now");
@@ -36,6 +50,8 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
     scheduled_time: "",
   });
   const [sending, setSending] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testRecipientEmail, setTestRecipientEmail] = useState("");
 
   const parseSpecificEmails = (value: string) =>
     value
@@ -171,6 +187,36 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
       toast({ title: "Failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
     }
     setSending(false);
+  };
+
+  const handleTestEmail = async () => {
+    const recipient = testRecipientEmail.trim().toLowerCase();
+    if (!isEmail(recipient)) {
+      toast({ title: "Enter valid recipient email", variant: "destructive" });
+      return;
+    }
+
+    setTestingEmail(true);
+    try {
+      const result = await api<MailTestResponse>("/api/mail/test", {
+        method: "POST",
+        body: JSON.stringify({ recipient_email: recipient, send_test_email: true }),
+      });
+      const accepted = result.sent?.accepted?.length || 0;
+      const rejected = result.sent?.rejected?.length || 0;
+      const messageId = result.sent?.message_id || "n/a";
+      const smtpResponse = result.sent?.response || "n/a";
+      toast({
+        title: "Email test completed",
+        description:
+          accepted > 0
+            ? `Accepted: ${accepted}, Message-ID: ${messageId}, SMTP: ${smtpResponse}`
+            : `Rejected: ${rejected}, Message-ID: ${messageId}, SMTP: ${smtpResponse}`,
+      });
+    } catch (err: unknown) {
+      toast({ title: "Email test failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
+    }
+    setTestingEmail(false);
   };
 
   return (
@@ -312,6 +358,31 @@ const ManualNotifications = ({ onSent }: ManualNotificationsProps) => {
           />
           <p className="text-xs text-muted-foreground">
             Tapping the notification in the app will navigate to this URL or screen.
+          </p>
+        </div>
+
+        {/* SMTP Test */}
+        <div className="space-y-2 border border-border rounded-lg p-4 bg-secondary/30">
+          <Label className="text-muted-foreground text-sm">SMTP Test Email</Label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={testRecipientEmail}
+              onChange={(e) => setTestRecipientEmail(e.target.value)}
+              placeholder="recipient@example.com"
+              className="bg-secondary border-border"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="border-border"
+              onClick={handleTestEmail}
+              disabled={testingEmail}
+            >
+              {testingEmail ? "Testing..." : "Send Test Email"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Verifies SMTP config and sends a diagnostic email to this address.
           </p>
         </div>
 

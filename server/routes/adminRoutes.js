@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import nodemailer from "nodemailer";
 import { resolveOutboundMailEnv } from "../mailEnv.js";
+import { buildBootstrapNotificationEmail } from "../mailTemplates.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,15 +72,6 @@ function mapProperty(row) {
     project: row.project_name || null,
     sale_type: saleType,
   };
-}
-
-function htmlEscape(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 export function registerAdminRoutes(app, pool, jwtSecret) {
@@ -242,37 +234,100 @@ export function registerAdminRoutes(app, pool, jwtSecret) {
     });
 
     let sent = 0;
-    const toList = recipients.map((r) => r.email).filter(Boolean);
+    const toList = [...new Set(recipients.map((r) => String(r.email || "").trim().toLowerCase()).filter(Boolean))];
     if (!toList.length) return { attempted: false, sent: 0, reason: "No recipient email addresses" };
 
-    const subject = payload.title || "New notification";
-    const safeTitle = htmlEscape(payload.title || "");
-    const safeBody = htmlEscape(payload.body || "");
-    const safeLink = payload.deep_link ? htmlEscape(payload.deep_link) : null;
-    const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
-        <h2 style="margin:0 0 12px">${safeTitle}</h2>
-        ${safeBody ? `<p style="white-space:pre-wrap;margin:0 0 12px">${safeBody}</p>` : ""}
-        ${safeLink ? `<p style="margin:0"><a href="${safeLink}" target="_blank" rel="noreferrer">${safeLink}</a></p>` : ""}
-      </div>
-    `;
+    const mail = buildBootstrapNotificationEmail({
+      title: payload.title,
+      body: payload.body,
+      deep_link: payload.deep_link,
+      brand_name: payload.brand_name || "Bin Al Sheikh Notifications",
+    });
+    const failures = [];
+    for (const toAddr of toList) {
+      try {
+        const info = await transporter.sendMail({
+          from,
+          to: toAddr,
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html,
+        });
+        if (info.rejected?.length) {
+          failures.push(`Rejected ${toAddr}`);
+          continue;
+        }
+        sent++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[sendNotificationEmails] SMTP error for", toAddr, msg);
+        failures.push(`${toAddr}: ${msg}`);
+      }
+    }
+    if (sent === 0 && failures.length) return { attempted: true, sent: 0, reason: failures[0] };
+    if (failures.length) return { attempted: true, sent, reason: `Sent ${sent}/${toList.length}; ${failures[0]}` };
+    return { attempted: true, sent, reason: null };
+  }
+
+  router.post("/mail/test", auth, async (req, res) => {
     try {
-      await transporter.sendMail({
-        from,
-        to: from,
-        bcc: toList,
-        subject,
-        text: [payload.title || "", payload.body || "", payload.deep_link || ""].filter(Boolean).join("\n\n"),
-        html,
+      const { host, port, secure, user, pass, from } = resolveOutboundMailEnv();
+      if (!host) return res.status(400).json({ error: "Missing SMTP host (SMTP_HOST or MAIL_HOST)." });
+      if (!from) {
+        return res.status(400).json({
+          error: "Missing from address (NOTIFICATION_EMAIL_FROM / MAIL_FROM_ADDRESS / MAIL_FROM).",
+        });
+      }
+
+      const recipient = String(req.body?.recipient_email || "").trim().toLowerCase();
+      const shouldSend = req.body?.send_test_email !== false;
+      if (shouldSend && !recipient) {
+        return res.status(400).json({ error: "recipient_email is required when send_test_email is true." });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: user && pass ? { user, pass } : undefined,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 30000,
       });
-      sent = toList.length;
-      return { attempted: true, sent, reason: null };
+
+      await transporter.verify();
+
+      let sendResult = null;
+      if (shouldSend) {
+        const info = await transporter.sendMail({
+          from,
+          to: recipient,
+          subject: "SMTP test — Mobile Admin Panel",
+          text: "This is a test email from Mobile Admin Panel SMTP diagnostics.",
+          html: "<p>This is a <strong>test email</strong> from Mobile Admin Panel SMTP diagnostics.</p>",
+        });
+        sendResult = {
+          accepted: info.accepted || [],
+          rejected: info.rejected || [],
+          pending: info.pending || [],
+          response: info.response || null,
+          envelope: info.envelope || null,
+          message_id: info.messageId || null,
+        };
+      }
+
+      res.json({
+        ok: true,
+        verify: "success",
+        config: { host, port, secure, user: user || null, from },
+        sent: sendResult,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[sendNotificationEmails] SMTP error:", msg);
-      return { attempted: true, sent: 0, reason: msg };
+      console.error("[mail/test] failed:", msg);
+      res.status(500).json({ error: msg });
     }
-  }
+  });
 
   router.get("/profiles", auth, async (req, res) => {
     const [rows] = await pool.query(
